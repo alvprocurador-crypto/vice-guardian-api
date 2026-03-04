@@ -11,8 +11,8 @@ llave = os.environ.get("GEMINI_API_KEY")
 if llave:
     genai.configure(api_key=llave)
 
-# CAMBIO AQUÍ: Usamos el nombre de modelo más estable y compatible
-model = genai.GenerativeModel('gemini-1.5-flash-latest')
+# CAMBIO CLAVE: Usamos este nombre que es el estándar universal
+model = genai.GenerativeModel('gemini-pro')
 
 class Consulta(BaseModel):
     pregunta: str
@@ -25,7 +25,7 @@ async def root():
 @app.post("/preguntar")
 async def chat_guardian(datos: Consulta):
     try:
-        # Llamada al modelo actualizado
+        # Generación de contenido con el modelo Pro
         response = model.generate_content(datos.pregunta)
         texto = response.text if response else "Sin respuesta del motor."
         
