@@ -1,3 +1,11 @@
+# Buscamos la llave de dos formas por si acaso
+api_key_google = os.environ.get("GEMINI_API_KEY") or os.environ.get("gemini_api_key")
+
+if not api_key_google:
+    # Si no la encuentra, esto nos avisará en el programa
+    print("ALERTA: No se encontró la llave API en Render")
+else:
+    genai.configure(api_key=api_key_google)
 from fastapi import FastAPI
 import uvicorn
 import os
@@ -58,3 +66,4 @@ async def chat_guardian(datos: Consulta):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
