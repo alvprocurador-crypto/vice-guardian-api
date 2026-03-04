@@ -1,11 +1,3 @@
-# Buscamos la llave de dos formas por si acaso
-api_key_google = os.environ.get("GEMINI_API_KEY") or os.environ.get("gemini_api_key")
-
-if not api_key_google:
-    # Si no la encuentra, esto nos avisará en el programa
-    print("ALERTA: No se encontró la llave API en Render")
-else:
-    genai.configure(api_key=api_key_google)
 from fastapi import FastAPI
 import uvicorn
 import os
@@ -14,8 +6,11 @@ from pydantic import BaseModel
 
 app = FastAPI()
 
-# Configuramos Gemini con tu llave
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+# Configuración simplificada de la llave
+llave = os.environ.get("GEMINI_API_KEY")
+if llave:
+    genai.configure(api_key=llave)
+
 model = genai.GenerativeModel('gemini-1.5-flash')
 
 class Consulta(BaseModel):
@@ -25,45 +20,26 @@ class Consulta(BaseModel):
 @app.post("/preguntar")
 async def chat_guardian(datos: Consulta):
     try:
-        # 1. Intentamos obtener respuesta de la IA
+        # Intentamos obtener respuesta
         response = model.generate_content(datos.pregunta)
+        texto = response.text if response else "Sin respuesta del motor."
         
-        # 2. Verificamos si la respuesta es válida para evitar el "None"
-        if response and hasattr(response, 'text') and response.text.strip() != "":
-            respuesta_texto = response.text
+        # Fórmula Vice básica para evitar fallos de memoria
+        confianza = 100
+        if "luna" in texto.lower() or "1745" in texto.lower():
+            confianza = 20
+            veredicto = "ALUCINACIÓN DETECTADA"
         else:
-            # Si Gemini no responde, simulamos la alucinación para que tu auditoría trabaje
-            respuesta_texto = "El sistema Gemini no pudo validar esta información histórica o lógica."
-
-        # 3. --- TU FÓRMULA VICE EN ACCIÓN ---
-        # Detectamos palabras sospechosas para bajar la confianza
-        alertas = ["luna", "1745", "error", "desconocido", "invento"]
-        puntos_riesgo = sum(25 for p in alertas if p in respuesta_texto.lower())
-        
-        confianza_final = 100 - puntos_riesgo
-        if confianza_final < 0: confianza_final = 0
-        
-        # Definimos el Veredicto basado en tu lógica de auditoría
-        if confianza_final >= 75:
-            veredicto = "DATOS VERIFICADOS - SEGURO"
-        else:
-            veredicto = "ALUCINACIÓN DETECTADA - RIESGO ALTO"
+            veredicto = "AUDITORÍA OK"
 
         return {
-            "respuesta_ia": respuesta_texto,
+            "respuesta_ia": texto,
             "veredicto_vice": veredicto,
-            "confianza": f"{confianza_final}%"
+            "confianza": f"{confianza}%"
         }
-
     except Exception as e:
-        # Si hay un error técnico, lo informamos claramente
-        return {
-            "respuesta_ia": "Error de conexión con el motor de IA.",
-            "veredicto_vice": "SISTEMA EN REVISIÓN",
-            "confianza": "0%"
-        }
+        return {"respuesta_ia": f"Error: {str(e)}", "veredicto_vice": "REVISAR CONEXIÓN", "confianza": "0%"}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
     uvicorn.run(app, host="0.0.0.0", port=port)
-
