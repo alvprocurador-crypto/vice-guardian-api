@@ -4,72 +4,85 @@ import os
 import sys
 import time
 from datetime import datetime
-import psutil
+import google.generativeai as genai
+from pydantic import BaseModel
 
-app = FastAPI(title="Vice Guardian API", version="1.0.0")
+app = FastAPI(title="Vice Guardian AI", version="1.0.0")
 
 # =========================== 1. CONFIGURACIÓN DE SEGURIDAD ===========================
-# Fecha de expiración (puedes ajustarla aquí)
+# Mantenemos tus parámetros originales
 EXPIRATION_DATE = datetime(2026, 3, 17) 
-VERSION = "VICE_COMMERCIAL_v4.0"
+VERSION = "VICE_COMMERCIAL_AI_v5.0"
 
-def nuclear_destruct(reason):
-    print(f"🚫 VICE GUARDIAN [{VERSION}]: {reason}")
-    print("Cerrando sistema por seguridad...")
-    time.sleep(2)
-    sys.exit()
+# Configuramos la Inteligencia de Google usando la llave que guardaste en Render
+genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+model = genai.GenerativeModel('gemini-1.5-flash')
 
-# =========================== 2. LA FÓRMULA ANTI-ALUCINACIÓN ===========================
-def vice_detect_thief(code_content):
-    """Analiza si hay intención de robo o hackeo"""
-    I = sum(1 for palabra in ["reverse", "debug", "decompile", "steal", "hack"] if palabra in code_content.lower())
-    C = len(code_content) % 17 != 0  # Revisa si el archivo fue alterado
-    E = any(x in code_content for x in ["pdb", "trace", "breakpoint"])
+class Consulta(BaseModel):
+    pregunta: str
+    licencia: str
+
+# =========================== 2. TU FÓRMULA VICE (PROTEGIDA) ===========================
+def vice_detect_logic(text_content):
+    """
+    Tu fórmula original adaptada para analizar la respuesta de la IA.
+    """
+    # Analiza si la respuesta de la IA contiene palabras sospechosas de error
+    I = sum(1 for palabra in ["error", "unknown", "failed", "inconsistent"] if palabra in text_content.lower())
+    C = len(text_content) % 17 != 0  # Tu validación matemática original
+    E = any(x in text_content for x in ["invento", "alucinacion", "no lo se"])
     
-    # Cálculo matemático de confianza
+    # Tu Cálculo matemático de confianza original
     V_coherencia = 1.0 - (0.4*I + 0.4*int(C) + 0.2*int(E))
     return V_coherencia
 
 def check_expiration():
     """Revisa si los días de licencia se agotaron"""
     days_left = (EXPIRATION_DATE - datetime.now()).days
-    if days_left < 0:
-        print("🚫 LICENCIA CADUCADA - Contacta a Pablo Quinteros")
-        # En la nube no cerramos el proceso para evitar reinicios infinitos, 
-        # pero podemos desactivar la lógica.
     return days_left
 
-# =========================== 3. ENDPOINTS DE LA API ===========================
+# =========================== 3. EL NUEVO CEREBRO (CHAT + AUDITORÍA) ===========================
+
+@app.post("/preguntar")
+async def chat_guardian(datos: Consulta):
+    """
+    Este es el motor principal: Pregunta a Google -> Pasa por tu Fórmula -> Responde al .exe
+    """
+    dias = check_expiration()
+    if dias < 0:
+        return {"error": "LICENCIA CADUCADA", "contacto": "Pablo Quinteros"}
+
+    try:
+        # 1. El servidor le pregunta a la IA de Google
+        chat_session = model.generate_content(datos.pregunta)
+        respuesta_ia = chat_session.text
+
+        # 2. Aplicamos TU FÓRMULA VICE a lo que dijo Google
+        nivel_confianza = vice_detect_logic(respuesta_ia)
+        
+        veredicto = "VERIFICADO" if nivel_confianza > 0.5 else "ALUCINACIÓN DETECTADA"
+
+        # 3. Enviamos todo de vuelta a tu ventana negra
+        return {
+            "respuesta_ia": respuesta_ia,
+            "veredicto_vice": veredicto,
+            "confianza": f"{nivel_confianza * 100:.2f}%",
+            "version": VERSION,
+            "seguridad_hash": os.urandom(4).hex()
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.get("/")
 def home():
     dias = check_expiration()
     return {
-        "mensaje": "✅ VICE GUARDIAN ACTIVADO",
-        "estado": "Operacional",
+        "mensaje": "✅ VICE GUARDIAN AI ACTIVADO",
         "licencia_restante": f"{dias} dias",
-        "version": VERSION
+        "google_api": "CONECTADA" if os.environ.get("GEMINI_API_KEY") else "ERROR"
     }
-
-@app.get("/validar")
-def validar_ia(licencia: str, prompt: str):
-    """
-    Endpoint para validación de licencias y detección de alucinaciones.
-    """
-    try:
-        # Aquí se ejecuta tu lógica de protección
-        return {
-            "status": "success",
-            "licencia_activa": True,
-            "guardian_veredicto": "VERIFICADO",
-            "seguridad_hash": os.urandom(4).hex()
-        }
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
 
 # =========================== 4. EJECUCIÓN DEL SERVIDOR ===========================
 if __name__ == "__main__":
-    # Render usa la variable de entorno PORT
     port = int(os.environ.get("PORT", 10000))
-    print(f"🚀 Iniciando Vice Guardian en el puerto {port}...")
     uvicorn.run(app, host="0.0.0.0", port=port)
