@@ -6,12 +6,12 @@ from pydantic import BaseModel
 
 app = FastAPI()
 
-# Configuración de la llave API
+# Forzamos la configuración limpia de la API
 llave = os.environ.get("GEMINI_API_KEY")
 if llave:
     genai.configure(api_key=llave)
 
-# ESTE ES EL NOMBRE CORRECTO SEGÚN EL ERROR:
+# Usamos el modelo base sin prefijos manuales, la librería se encarga
 model = genai.GenerativeModel('gemini-1.5-flash')
 
 class Consulta(BaseModel):
@@ -25,11 +25,15 @@ async def root():
 @app.post("/preguntar")
 async def chat_guardian(datos: Consulta):
     try:
-        # Forzamos el uso de la versión estable que Google pide
+        # Usamos generate_content de la forma más sencilla y directa
         response = model.generate_content(datos.pregunta)
-        texto = response.text if response else "Sin respuesta."
         
-        # Fórmula Vice
+        if response and hasattr(response, 'text'):
+            texto = response.text
+        else:
+            texto = "IA no devolvió texto. Revisa tu API Key."
+
+        # Tu Fórmula Vice
         confianza = 100
         veredicto = "AUDITORÍA OK"
         if "luna" in texto.lower() or "1745" in texto.lower():
@@ -42,8 +46,8 @@ async def chat_guardian(datos: Consulta):
             "confianza": f"{confianza}%"
         }
     except Exception as e:
-        # Este mensaje nos dirá si falta algo más
-        return {"respuesta_ia": f"Ajuste necesario: {str(e)}", "veredicto_vice": "REINTENTAR", "confianza": "0%"}
+        # Si falla, este mensaje nos dirá el error real de Google
+        return {"respuesta_ia": f"Error de Google: {str(e)}", "veredicto_vice": "FALLO API", "confianza": "0%"}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
