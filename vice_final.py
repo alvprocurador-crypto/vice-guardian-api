@@ -1,18 +1,15 @@
 from fastapi import FastAPI
 import uvicorn
 import os
-import google.generativeai as genai
+import requests
 from pydantic import BaseModel
 
 app = FastAPI()
 
-# Forzamos la configuración limpia de la API
-llave = os.environ.get("GEMINI_API_KEY")
-if llave:
-    genai.configure(api_key=llave)
-
-# Usamos el modelo base sin prefijos manuales, la librería se encarga
-model = genai.GenerativeModel('gemini-1.5-flash')
+# Configuración de la llave y la URL Directa
+API_KEY = os.environ.get("GEMINI_API_KEY")
+# Esta es la dirección exacta que Google pide para conexiones puras
+URL_GEMINI = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}"
 
 class Consulta(BaseModel):
     pregunta: str
@@ -20,34 +17,46 @@ class Consulta(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"mensaje": "VICE Guardian Operativo"}
+    return {"status": "VICE Guardian: Conexión Directa Activa"}
 
 @app.post("/preguntar")
 async def chat_guardian(datos: Consulta):
-    try:
-        # Usamos generate_content de la forma más sencilla y directa
-        response = model.generate_content(datos.pregunta)
-        
-        if response and hasattr(response, 'text'):
-            texto = response.text
-        else:
-            texto = "IA no devolvió texto. Revisa tu API Key."
+    # Instrucción Maestra para que la IA aplique tu Fórmula VICE internamente
+    prompt_maestro = (
+        "Eres el auditor VICE. Responde la siguiente pregunta de forma precisa. "
+        "Si la respuesta menciona la palabra 'luna' o el año '1745', "
+        "debes considerarlo una alucinación bajo los protocolos VICE."
+    )
+    
+    payload = {
+        "contents": [{
+            "parts": [{"text": f"{prompt_maestro}\nUsuario dice: {datos.pregunta}"}]
+        }]
+    }
 
-        # Tu Fórmula Vice
+    try:
+        # Enviamos la pregunta directamente a Google por HTTP
+        response = requests.post(URL_GEMINI, json=payload)
+        res_json = response.json()
+        
+        # Extraemos el texto de la respuesta del formato de Google
+        texto_ia = res_json['candidates'][0]['content']['parts'][0]['text']
+        
+        # Tu Fórmula de Auditoría
         confianza = 100
         veredicto = "AUDITORÍA OK"
-        if "luna" in texto.lower() or "1745" in texto.lower():
+        if "luna" in texto_ia.lower() or "1745" in texto_ia.lower():
             confianza = 20
             veredicto = "ALUCINACIÓN DETECTADA"
 
         return {
-            "respuesta_ia": texto,
+            "respuesta_ia": texto_ia,
             "veredicto_vice": veredicto,
             "confianza": f"{confianza}%"
         }
     except Exception as e:
-        # Si falla, este mensaje nos dirá el error real de Google
-        return {"respuesta_ia": f"Error de Google: {str(e)}", "veredicto_vice": "FALLO API", "confianza": "0%"}
+        # Si algo falla, este mensaje nos dirá exactamente qué dijo Google
+        return {"respuesta_ia": f"Ajuste de conexión: {str(e)}", "veredicto_vice": "REINTENTAR", "confianza": "0%"}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
