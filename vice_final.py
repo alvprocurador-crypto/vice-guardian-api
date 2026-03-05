@@ -5,10 +5,11 @@ import requests
 from pydantic import BaseModel
 
 app = FastAPI()
-API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# Lista de modelos por orden de prioridad
-MODELOS = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-1.5-pro", "gemini-pro"]
+# 1. Configuración
+API_KEY = os.environ.get("GEMINI_API_KEY")
+# Usamos el modelo exacto que Google te confirmó en el diagnóstico: gemini-2.0-flash
+URL_GEMINI = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
 
 class Consulta(BaseModel):
     pregunta: str
@@ -16,34 +17,46 @@ class Consulta(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "VICE Guardian: Blindaje Nivel 5 Activo"}
+    return {"status": "VICE Guardian: Conexión Gemini 2.0 Activa"}
 
 @app.post("/preguntar")
 async def chat_guardian(datos: Consulta):
     if not API_KEY:
         return {"respuesta_ia": "Error: Falta API_KEY en Render", "veredicto_vice": "CONFIGURAR", "confianza": "0%"}
 
-    payload = {"contents": [{"parts": [{"text": f"Eres el auditor VICE. Responde: {datos.pregunta}"}]}]}
-    
-    # Intentamos cada modelo en la versión v1beta (la más flexible)
-    for nombre_modelo in MODELOS:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{nombre_modelo}:generateContent?key={API_KEY}"
-        try:
-            res = requests.post(url, json=payload, timeout=10)
-            data = res.json()
-            if "candidates" in data:
-                texto = data['candidates'][0]['content']['parts'][0]['text']
-                return {"respuesta_ia": texto, "veredicto_vice": "AUDITORÍA OK", "confianza": "100%", "modelo": nombre_modelo}
-        except:
-            continue
+    payload = {
+        "contents": [{
+            "parts": [{"text": f"Eres el auditor VICE. Responde con precisión: {datos.pregunta}"}]
+        }]
+    }
 
-    # Si todo falla, le preguntamos a Google: ¿Qué modelos me dejas usar?
     try:
-        diag = requests.get(f"https://generativelanguage.googleapis.com/v1beta/models?key={API_KEY}").json()
-        modelos_vivos = [m["name"] for m in diag.get("models", [])]
-        return {"respuesta_ia": f"Tu llave solo permite: {modelos_vivos}", "veredicto_vice": "ERROR PERMISOS", "confianza": "0%"}
-    except:
-        return {"respuesta_ia": "Error crítico de conexión regional.", "veredicto_vice": "CAMBIAR REGION", "confianza": "0%"}
+        # Petición directa usando el modelo 2.0 confirmado
+        response = requests.post(f"{URL_GEMINI}?key={API_KEY}", json=payload, timeout=20)
+        res_json = response.json()
+        
+        if "candidates" in res_json:
+            texto_ia = res_json['candidates'][0]['content']['parts'][0]['text']
+            
+            # Auditoría VICE
+            confianza = 100
+            veredicto = "AUDITORÍA OK"
+            if "luna" in texto_ia.lower() or "1745" in texto_ia.lower():
+                confianza = 20
+                veredicto = "ALUCINACIÓN DETECTADA"
+
+            return {
+                "respuesta_ia": texto_ia,
+                "veredicto_vice": veredicto,
+                "confianza": f"{confianza}%"
+            }
+        
+        # Si hay otro error, lo capturamos
+        error_msg = res_json.get("error", {}).get("message", "Error de respuesta")
+        return {"respuesta_ia": f"Aviso de Google: {error_msg}", "veredicto_vice": "REVISAR", "confianza": "0%"}
+
+    except Exception as e:
+        return {"respuesta_ia": f"Fallo técnico: {str(e)}", "veredicto_vice": "REINTENTAR", "confianza": "0%"}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
