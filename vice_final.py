@@ -6,16 +6,12 @@ from pydantic import BaseModel
 
 app = FastAPI()
 
-# Capturamos la llave de Render
+# 1. Configuración de la llave
 API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# Matriz de soluciones (Versiones y Modelos más estables de Google)
-ESTRATEGIAS = [
-    {"url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent", "tag": "v1beta-flash"},
-    {"url": "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent", "tag": "v1-flash"},
-    {"url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent", "tag": "v1beta-pro"},
-    {"url": "https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent", "tag": "v1-pro"}
-]
+# 2. LA RUTA EXACTA: Para Gemini 1.5 Flash, Google suele requerir v1beta
+# Si esta falla, el reporte de error nos dirá el motivo de seguridad o cuota.
+URL_GEMINI = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
 
 class Consulta(BaseModel):
     pregunta: str
@@ -23,69 +19,52 @@ class Consulta(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "VICE Guardian: Blindaje Nivel 5 Activo"}
+    return {"status": "VICE Guardian: Conexión Especial Activa"}
 
 @app.post("/preguntar")
 async def chat_guardian(datos: Consulta):
     if not API_KEY:
-        return {"respuesta_ia": "Error: Sin API_KEY en Render", "veredicto_vice": "FALLO_CONFIG", "confianza": "0%"}
+        return {"respuesta_ia": "Error: API_KEY ausente en Render", "veredicto_vice": "REVISAR_ENV", "confianza": "0%"}
 
-    # Prompt Maestro con refuerzo de identidad
     prompt_maestro = (
-        "Actúa como Auditor VICE. Responde con precisión quirúrgica. "
-        "Protocolo: Si mencionas 'luna' o '1745', la auditoría fallará."
+        "Eres el auditor VICE. Responde de forma breve y precisa. "
+        "Si mencionas 'luna' o '1745', el sistema detectará una alucinación."
     )
     
     payload = {
-        "contents": [{"parts": [{"text": f"{prompt_maestro}\nUsuario: {datos.pregunta}"}]}]
+        "contents": [{
+            "parts": [{"text": f"{prompt_maestro}\nUsuario: {datos.pregunta}"}]
+        }]
     }
 
-    reporte_errores = []
-
-    # El código intentará cada estrategia hasta que una funcione
-    for estrategia in ESTRATEGIAS:
-        try:
-            res = requests.post(
-                estrategia["url"], 
-                json=payload, 
-                params={'key': API_KEY}, 
-                timeout=12
-            )
-            data = res.json()
-
-            if "candidates" in data:
-                texto_ia = data['candidates'][0]['content']['parts'][0]['text']
-                
-                # --- Auditoría de la Fórmula VICE ---
-                confianza = 100
-                veredicto = "AUDITORÍA OK"
-                analisis = texto_ia.lower()
-                
-                if "luna" in analisis or "1745" in analisis:
-                    confianza = 20
-                    veredicto = "ALUCINACIÓN DETECTADA"
-
-                return {
-                    "respuesta_ia": texto_ia,
-                    "veredicto_vice": veredicto,
-                    "confianza": f"{confianza}%",
-                    "ruta_exitosa": estrategia["tag"]
-                }
+    try:
+        # Llamada directa con la URL de la versión beta (la más compatible con Flash)
+        response = requests.post(f"{URL_GEMINI}?key={API_KEY}", json=payload, timeout=15)
+        res_json = response.json()
+        
+        # Procesamiento de la respuesta
+        if "candidates" in res_json:
+            texto_ia = res_json['candidates'][0]['content']['parts'][0]['text']
             
-            # Si Google responde pero con error, lo guardamos para el reporte final
-            msg = data.get("error", {}).get("message", "Error desconocido")
-            reporte_errores.append(f"{estrategia['tag']}: {msg}")
+            # Aplicación de Fórmula VICE
+            confianza = 100
+            veredicto = "AUDITORÍA OK"
+            if "luna" in texto_ia.lower() or "1745" in texto_ia.lower():
+                confianza = 20
+                veredicto = "ALUCINACIÓN DETECTADA"
 
-        except Exception as e:
-            reporte_errores.append(f"{estrategia['tag']}: Fallo de red")
+            return {
+                "respuesta_ia": texto_ia,
+                "veredicto_vice": veredicto,
+                "confianza": f"{confianza}%"
+            }
+        
+        # Si Google da un error, lo exponemos para saber qué falta
+        error_msg = res_json.get("error", {}).get("message", "Error de modelo o versión")
+        return {"respuesta_ia": f"Google informa: {error_msg}", "veredicto_vice": "REVISAR_GOOGLE", "confianza": "0%"}
 
-    # Si llegamos aquí, todas las soluciones fallaron
-    return {
-        "respuesta_ia": "No se pudo establecer conexión con ninguna ruta de Google.",
-        "veredicto_vice": "ERROR CRÍTICO",
-        "detalles": reporte_errores[:2], # Mostramos los 2 errores principales
-        "confianza": "0%"
-    }
+    except Exception as e:
+        return {"respuesta_ia": f"Excepción de red: {str(e)}", "veredicto_vice": "REINTENTAR", "confianza": "0%"}
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
