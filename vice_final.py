@@ -6,11 +6,16 @@ from pydantic import BaseModel
 
 app = FastAPI()
 
-# 1. Configuración de la llave desde las variables de entorno de Render
+# Capturamos la llave de Render
 API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# 2. URL de Google Gemini (Versión estable v1 para evitar errores de modelo no encontrado)
-URL_GEMINI = "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent"
+# Matriz de soluciones (Versiones y Modelos más estables de Google)
+ESTRATEGIAS = [
+    {"url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent", "tag": "v1beta-flash"},
+    {"url": "https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent", "tag": "v1-flash"},
+    {"url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent", "tag": "v1beta-pro"},
+    {"url": "https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent", "tag": "v1-pro"}
+]
 
 class Consulta(BaseModel):
     pregunta: str
@@ -18,82 +23,70 @@ class Consulta(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"status": "VICE Guardian: Conexión Directa Activa"}
+    return {"status": "VICE Guardian: Blindaje Nivel 5 Activo"}
 
 @app.post("/preguntar")
 async def chat_guardian(datos: Consulta):
-    # Verificación de seguridad inicial
     if not API_KEY:
-        return {
-            "respuesta_ia": "Error: La API_KEY no está configurada en Render.",
-            "veredicto_vice": "CONFIGURAR ENV",
-            "confianza": "0%"
-        }
+        return {"respuesta_ia": "Error: Sin API_KEY en Render", "veredicto_vice": "FALLO_CONFIG", "confianza": "0%"}
 
-    # Instrucción Maestra del Auditor VICE
+    # Prompt Maestro con refuerzo de identidad
     prompt_maestro = (
-        "Eres el auditor VICE. Responde la siguiente pregunta de forma precisa. "
-        "Si la respuesta menciona la palabra 'luna' o el año '1745', "
-        "debes considerarlo una alucinación bajo los protocolos VICE."
+        "Actúa como Auditor VICE. Responde con precisión quirúrgica. "
+        "Protocolo: Si mencionas 'luna' o '1745', la auditoría fallará."
     )
     
     payload = {
-        "contents": [{
-            "parts": [{"text": f"{prompt_maestro}\nUsuario dice: {datos.pregunta}"}]
-        }]
+        "contents": [{"parts": [{"text": f"{prompt_maestro}\nUsuario: {datos.pregunta}"}]}]
     }
 
-    try:
-        # Petición HTTP directa a Google
-        params = {'key': API_KEY}
-        response = requests.post(URL_GEMINI, json=payload, params=params)
-        res_json = response.json()
-        
-        # Validación de la respuesta de Google
-        if "candidates" in res_json:
-            texto_ia = res_json['candidates'][0]['content']['parts'][0]['text']
-            
-            # Aplicación de la Fórmula de Auditoría VICE
-            confianza = 100
-            veredicto = "AUDITORÍA OK"
-            
-            # Detección de alucinaciones (Luna / 1745)
-            texto_lower = texto_ia.lower()
-            if "luna" in texto_lower or "1745" in texto_lower:
-                confianza = 20
-                veredicto = "ALUCINACIÓN DETECTADA"
+    reporte_errores = []
 
-            return {
-                "respuesta_ia": texto_ia,
-                "veredicto_vice": veredicto,
-                "confianza": f"{confianza}%"
-            }
-        
-        # Si Google devuelve un error estructurado
-        elif "error" in res_json:
-            mensaje_google = res_json["error"].get("message", "Error desconocido de API")
-            return {
-                "respuesta_ia": f"Google dice: {mensaje_google}",
-                "veredicto_vice": "REVISAR API",
-                "confianza": "0%"
-            }
-        
-        else:
-            return {
-                "respuesta_ia": "Error inesperado en el formato de respuesta de Google.",
-                "veredicto_vice": "REINTENTAR",
-                "confianza": "0%"
-            }
+    # El código intentará cada estrategia hasta que una funcione
+    for estrategia in ESTRATEGIAS:
+        try:
+            res = requests.post(
+                estrategia["url"], 
+                json=payload, 
+                params={'key': API_KEY}, 
+                timeout=12
+            )
+            data = res.json()
 
-    except Exception as e:
-        # Captura errores de red o del servidor
-        return {
-            "respuesta_ia": f"Falla de conexión: {str(e)}",
-            "veredicto_vice": "ERROR RED",
-            "confianza": "0%"
-        }
+            if "candidates" in data:
+                texto_ia = data['candidates'][0]['content']['parts'][0]['text']
+                
+                # --- Auditoría de la Fórmula VICE ---
+                confianza = 100
+                veredicto = "AUDITORÍA OK"
+                analisis = texto_ia.lower()
+                
+                if "luna" in analisis or "1745" in analisis:
+                    confianza = 20
+                    veredicto = "ALUCINACIÓN DETECTADA"
+
+                return {
+                    "respuesta_ia": texto_ia,
+                    "veredicto_vice": veredicto,
+                    "confianza": f"{confianza}%",
+                    "ruta_exitosa": estrategia["tag"]
+                }
+            
+            # Si Google responde pero con error, lo guardamos para el reporte final
+            msg = data.get("error", {}).get("message", "Error desconocido")
+            reporte_errores.append(f"{estrategia['tag']}: {msg}")
+
+        except Exception as e:
+            reporte_errores.append(f"{estrategia['tag']}: Fallo de red")
+
+    # Si llegamos aquí, todas las soluciones fallaron
+    return {
+        "respuesta_ia": "No se pudo establecer conexión con ninguna ruta de Google.",
+        "veredicto_vice": "ERROR CRÍTICO",
+        "detalles": reporte_errores[:2], # Mostramos los 2 errores principales
+        "confianza": "0%"
+    }
 
 if __name__ == "__main__":
-    # Render asigna un puerto dinámico mediante la variable de entorno PORT
     port = int(os.environ.get("PORT", 10000))
     uvicorn.run(app, host="0.0.0.0", port=port)
